@@ -82,35 +82,36 @@ public class WorkbookReader implements AutoCloseable {
 	 * @throws InvalidFormatException 
 	 * @throws XMLStreamException 
 	 */
-	public void processSheetName(String name) throws IOException, 
-	InvalidFormatException, XMLStreamException {
+	public void processSheetName(String name) throws IOException, InvalidFormatException, XMLStreamException {
+		LOGGER.info("Processing sheet with name: {}", name);
 
-		// close the previous sheet reader if there was one
+		// Close the previous sheet reader if there was one
 		if (sheetReader != null)
 			sheetReader.close();
 
 		if (sheetParser != null)
 			sheetParser.clear();
 
-		// get the sheet relationship id using the sheet name
+		// Get the sheet relationship id using the sheet name
 		String sheetRId = workbookHandler.getSheetRelationshipId(name);
+		LOGGER.info("Fetched relationship ID for sheet {}: {}", name, sheetRId);
 
-		// if not sheet id is retrieved => exception
-		if (sheetRId.equals("") || sheetRId == null) {
-			LOGGER.error("No sheet named " + name + " was found!");
+		// If no sheet ID is retrieved => exception
+		if (sheetRId == null || sheetRId.isEmpty()) {
+			LOGGER.error("No sheet named {} was found!", name);
 			return;
 		}
 
-		// get the sheet from the reader
+		// Get the sheet from the reader
 		sheetReader = reader.getSheet(sheetRId);
 
-		// create a parser with pull pattern
-		sheetParser = new BufferedSheetReader (sheetReader, 
-				reader.getSharedStringsTable());
-		
-		// get the number of rows for the sheet
+		// Create a parser with pull pattern
+		sheetParser = new BufferedSheetReader(sheetReader, reader.getSharedStringsTable());
+
+		// Get the number of rows for the sheet
 		InputStream input = reader.getSheet(sheetRId);
 		rowCount = BufferedSheetReader.getRowCount(input);
+		LOGGER.info("Row count for sheet {}: {}", name, rowCount);
 		input.close();
 	}
 
@@ -161,12 +162,13 @@ public class WorkbookReader implements AutoCloseable {
 	 * @throws XMLStreamException
 	 */
 	public ResultDataSet next() throws XMLStreamException {
-
 		if (sheetParser == null)
 			return null;
-		
-		LOGGER.debug("Next batch result set " + sheetParser.next());
-		return sheetParser.next();
+
+		ResultDataSet resultSet = sheetParser.next();
+		LOGGER.info("ResultDataSet row count: {}", resultSet.getRowsCount());
+		LOGGER.info("ResultDataSet content: {}", resultSet.getCurrentRow()); // Print first row, if available
+		return resultSet;
 	}
 
 	/**

@@ -23,6 +23,7 @@ import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.Locale;
 import java.util.Map;
 
 import org.apache.logging.log4j.LogManager;
@@ -334,47 +335,41 @@ public class ResultDataSet implements ResultSet, Cloneable {
 	 * @param excelDate
 	 * @return
 	 */
-	public Timestamp getTimestamp (String header, boolean excelDate) {
-		
-		// get the excel column letter from the column header
-		String key = getColumnLetter (header);
-				
-		if (key == null)
-			return null;
-		
-		// return the value inside the cell identified by the column letter
-		// and by the current row
+	public Timestamp getTimestamp(String header, boolean excelDate) {
+		// Get the column key for the header
+		String key = getColumnLetter(header);
+		if (key == null) return null;
+
+		// Retrieve the value for the current row
 		String value = currentDataRow.get(key.toUpperCase());
-		
-		// if no value found, return the default
-		if (value == null || value.isEmpty())
-			return null;
-		
-		
+		if (value == null || value.isEmpty()) return null;
+
 		Timestamp ts = null;
+
 		try {
-			
-			// get the date in long format
+			// Attempt to parse as a long (for numeric date or Excel serial date)
 			long date = Long.parseLong(value);
-			
-			// if we need to convert from an excel date, we convert it
-			if (excelDate)
-				ts = toSQLTimestamp(DateUtil.getJavaDate(date));
-			else // otherwise directly create a timestamp from the long date
-				ts = new Timestamp(date);
-		}
-		catch (NumberFormatException e) {
-			LOGGER.error("Problem on converting value " +  value);
-			// it was a string! => format as simple string
+			if (excelDate && date > 0 && date < 2958465) { // Check valid Excel date range
+				ts = toSQLTimestamp(DateUtil.getJavaDate(date)); // Convert Excel date
+			} else {
+				ts = new Timestamp(date); //else timestamp in milliseconds
+			}
+		} catch (NumberFormatException e) {
+			// Value is not a number, try parsing as a formatted date string
+			LOGGER.debug("Value '{}' is not numeric. Attempting to parse as a date string.", value);
 			try {
-				
-				ts = getTimestampFromString(value, "yyyy/MM/dd");
-				
+				String[] possibleFormats = {
+						"yyyy/MM/dd", "yyyy-MM-dd",
+						"MM/dd/yyyy", "dd-MM-yyyy",
+						"yyyyMMdd", "dd MMM yyyy" // Add more as needed
+				};
+				ts = getTimestampFromString(value, possibleFormats);
 			} catch (ParseException e1) {
-				LOGGER.error("Problem on parsing value " +  value);
+				LOGGER.error("Failed to parse value '{}' as a date.", value);
 				e1.printStackTrace();
 			}
 		}
+
 		return ts;
 	}
 	
@@ -392,20 +387,31 @@ public class ResultDataSet implements ResultSet, Cloneable {
 		// return the timestamp
 		return timestamp; 
 	}
-	
+
 	/**
-	 * Trasform a date string into a timestamp
-	 * @param dateString
-	 * @param dateFormat
-	 * @return
-	 * @throws ParseException
+	 * Try parsing a date string using multiple formats.
+	 *
+	 * @param dateString The date string to parse.
+	 * @param dateFormats Array of possible date formats.
+	 * @return The parsed timestamp.
+	 * @throws ParseException If none of the formats match.
 	 */
-	public static java.sql.Timestamp getTimestampFromString (String dateString, 
-			String dateFormat) throws ParseException {
-		
-		SimpleDateFormat format = new SimpleDateFormat(dateFormat);
-	    Date parsedDate = format.parse(dateString);
-	    return new java.sql.Timestamp(parsedDate.getTime());
+	public static java.sql.Timestamp getTimestampFromString(String dateString, String[] dateFormats) throws ParseException {
+		ParseException lastException = null; // Track the last exception
+		for (String format : dateFormats) {
+			try {
+				SimpleDateFormat sdf = new SimpleDateFormat(format, Locale.ENGLISH); // Use a consistent locale
+				sdf.setLenient(false); // Prevent leniency in parsing (e.g., "32nd day")
+				Date parsedDate = sdf.parse(dateString);
+				return new java.sql.Timestamp(parsedDate.getTime());
+			} catch (ParseException e) {
+				LOGGER.debug("Failed to parse '{}' with format '{}'", dateString, format);
+				lastException = e; // Store the last exception for later use
+			}
+		}
+		// Log an error and rethrow the last exception if no formats matched
+		LOGGER.error("All formats failed to parse '{}'. Last error: {}", dateString, lastException.getMessage());
+		throw lastException;
 	}
 	
 	
